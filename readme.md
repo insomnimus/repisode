@@ -80,7 +80,7 @@ The `<pattern>` is a specialized glob pattern:
 -	The `*` wildcard matches anything 0 or more times.
 -	The `?` wild card matches one or zero unicode code point (character).
 -	The `@N@` matches any digit at least once. This is how you mark a number to be fixed.
--	The `*` and `?` wildcards can be escaped with a `\\`.
+-	The `*` and `?` wildcards can be escaped with a `\`.
 -	Any space character (ie ` `, `\t`) is turned into `\s` in regex.
 -	No other symbol/character has any special meaning, they are matched literally.
 -	The pattern matching is case insensitive (full unicode support in case-folding).
