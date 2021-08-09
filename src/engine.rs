@@ -4,7 +4,6 @@ const REGEX_SPECIALS: &str = r"^$.,{}\<>?*:()[]-+";
 
 struct Compiler {
     expr: Vec<char>,
-    pos: usize,
     readpos: usize,
     ch: char,
 }
@@ -17,7 +16,6 @@ impl Compiler {
 
         Self {
             expr,
-            pos: 0,
             readpos: 1,
             ch,
         }
@@ -29,7 +27,6 @@ impl Compiler {
         } else {
             self.ch = self.expr[self.readpos];
         }
-        self.pos = self.readpos;
         self.readpos += 1;
     }
 
