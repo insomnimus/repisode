@@ -72,3 +72,19 @@ The other method is using cargo directly:
 `cargo install --git https://github.com/insomnimus/repisode --branch main`
 
 Have fun, don't forget to check for updates!
+
+# Pattern Syntax
+
+The `<pattern>` is a specialized glob pattern:
+
+-	The `*` wildcard matches anything 0 or more times.
+-	The `?` wild card matches one or zero unicode code point (character).
+-	The `@N@` matches any digit at least once. This is how you mark a number to be fixed.
+-	The `*` and `?` wildcards can be escaped with a `\\`.
+-	Any space character (ie ` `, `\t`) is turned into `\s` in regex.
+-	No other symbol/character has any special meaning, they are matched literally.
+-	The pattern matching is case insensitive (full unicode support in case-folding).
+
+## Note For Windows Users
+
+Assuming you use powershell or cmd.exe, the shell does not expand glob patterns by itself. That's why repisode will interpret any glob patterns for you.
