@@ -1,188 +1,200 @@
 #[cfg(test)]
-mod cmd_test;
+mod tests;
 
 use std::{
-    error::Error,
-    fs,
-    path::{
-        Path,
-        PathBuf,
-    },
+	error::Error,
+	fs,
+	path::{
+		Path,
+		PathBuf,
+	},
 };
 
+use once_cell::unsync::OnceCell;
+
 use crate::{
-    app,
-    engine,
+	app,
+	engine,
 };
 
 struct Renamee<'a> {
-    path: &'a Path,
-    old: String,
-    indices: Vec<(usize, usize)>,
+	path: &'a Path,
+	old: String,
+	indices: Vec<(usize, usize)>,
+	new: OnceCell<String>,
 }
 
 impl<'a> Renamee<'a> {
-    fn new_name(&self, max_digits: &[usize]) -> String {
-        let mut pieces = Vec::new();
-        for (i, (start, end)) in self.indices.iter().enumerate() {
-            let start = *start;
-            let end = *end;
-            if i == 0 {
-                pieces.push(&self.old[..start]);
-                if self.indices.len() == 1 {
-                    pieces.push(&self.old[end..]);
-                    break;
-                }
-                continue;
-            }
+	fn new(path: &'a Path, old: String, indices: Vec<(usize, usize)>) -> Self {
+		Self {
+			path,
+			old,
+			indices,
+			new: OnceCell::new(),
+		}
+	}
 
-            let prev_end = self.indices[i - 1].1;
-            pieces.push(&self.old[prev_end..start]);
+	fn new_name(&self, max_digits: &[usize]) -> &str {
+		self.new
+			.get_or_init(|| self.calc_new_name(max_digits))
+			.as_str()
+	}
 
-            if i + 1 == self.indices.len() {
-                pieces.push(&self.old[end..]);
-            }
-        }
+	fn calc_new_name(&self, max_digits: &[usize]) -> String {
+		let mut pieces = Vec::new();
+		for (i, (start, end)) in self.indices.iter().enumerate() {
+			let start = *start;
+			let end = *end;
+			if i == 0 {
+				pieces.push(&self.old[..start]);
+				if self.indices.len() == 1 {
+					pieces.push(&self.old[end..]);
+					break;
+				}
+				continue;
+			}
 
-        let mut new_nums = self
-            .indices
-            .iter()
-            .map(|(start, end)| self.old[*start..*end].parse::<usize>().unwrap())
-            .enumerate()
-            .map(|(i, n)| format!("{num:0>width$}", num = n, width = max_digits[i]))
-            .collect::<Vec<_>>();
+			let prev_end = self.indices[i - 1].1;
+			pieces.push(&self.old[prev_end..start]);
 
-        assert_eq!(pieces.len(), new_nums.len() + 1, "spliced incorrectly");
+			if i + 1 == self.indices.len() {
+				pieces.push(&self.old[end..]);
+			}
+		}
 
-        let mut buf = pieces[0].to_string();
+		let mut new_nums = self
+			.indices
+			.iter()
+			.map(|(start, end)| self.old[*start..*end].parse::<usize>().unwrap())
+			.enumerate()
+			.map(|(i, n)| format!("{num:0>width$}", num = n, width = max_digits[i]))
+			.collect::<Vec<_>>();
 
-        for s in &pieces[1..] {
-            buf.push_str(&new_nums.remove(0));
-            buf.push_str(s);
-        }
+		assert_eq!(pieces.len(), new_nums.len() + 1, "spliced incorrectly");
 
-        buf
-    }
+		let mut buf = pieces[0].to_string();
+
+		for s in &pieces[1..] {
+			buf.push_str(&new_nums.remove(0));
+			buf.push_str(s);
+		}
+
+		buf
+	}
 }
 
 pub struct Cmd {
-    pattern: String,
-    files: Vec<PathBuf>,
-    interactive: bool,
-    err_abort: bool,
-    force: bool,
+	pattern: String,
+	files: Vec<PathBuf>,
+	interactive: bool,
+	err_abort: bool,
+	force: bool,
 }
 
 impl Cmd {
-    pub fn from_args() -> Self {
-        let m = app::new().get_matches();
+	pub fn from_args() -> Self {
+		let m = app::new().get_matches();
 
-        let pattern = m.value_of("pattern").unwrap().to_string();
-        let force = m.is_present("force");
-        let err_abort = m.is_present("err-abort");
+		let pattern = m.value_of("pattern").unwrap().to_string();
+		let force = m.is_present("force");
+		let err_abort = m.is_present("err-abort");
 
-        #[cfg(not(windows))]
-        let files: Vec<_> = m.values_of("file").unwrap().map(PathBuf::from).collect();
-        #[cfg(windows)]
-        let files = crate::get_files(&m);
+		#[cfg(not(windows))]
+		let files: Vec<_> = m.values_of("file").unwrap().map(PathBuf::from).collect();
+		#[cfg(windows)]
+		let files = crate::get_files(&m);
 
-        let interactive = m.is_present("interactive");
+		let interactive = m.is_present("interactive");
 
-        Self {
-            pattern,
-            files,
-            interactive,
-            err_abort,
-            force,
-        }
-    }
+		Self {
+			pattern,
+			files,
+			interactive,
+			err_abort,
+			force,
+		}
+	}
 }
 
 impl Cmd {
-    pub fn run(&mut self) -> Result<(), Box<dyn Error>> {
-        let re = engine::compile(&self.pattern)?;
+	pub fn run(&mut self) -> Result<(), Box<dyn Error>> {
+		let re = engine::compile(&self.pattern)?;
 
-        let items: Vec<_> = self
-            .files
-            .iter()
-            .map(|p| -> Result<Renamee<'_>, String> {
-                let name = p
-                    .file_name()
-                    .map(|s| s.to_os_string())
-                    .ok_or_else(|| format!("{} has no file name", p.display()))?
-                    .into_string()
-                    .map_err(|_| format!("{} is not a valid utf-8 path", p.display()))?;
+		let items: Vec<_> = self
+			.files
+			.iter()
+			.map(|p| -> Result<Renamee<'_>, String> {
+				let name = p
+					.file_name()
+					.map(|s| s.to_os_string())
+					.ok_or_else(|| format!("{} has no file name", p.display()))?
+					.into_string()
+					.map_err(|_| format!("{} is not a valid utf-8 path", p.display()))?;
 
-                let indices = re
-                    .captures(&name)
-                    .ok_or_else(|| {
-                        format!("the file {} does not match the provided pattern", &name)
-                    })?
-                    .iter()
-                    .skip(1)
-                    .filter_map(|o| o.map(|c| (c.start(), c.end())))
-                    .collect::<Vec<_>>();
+				let indices = re
+					.captures(&name)
+					.ok_or_else(|| {
+						format!("the file {} does not match the provided pattern", &name)
+					})?
+					.iter()
+					.skip(1)
+					.filter_map(|o| o.map(|c| (c.start(), c.end())))
+					.collect::<Vec<_>>();
 
-                Ok(Renamee {
-                    path: p,
-                    old: name,
-                    indices,
-                })
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+				Ok(Renamee::new(p, name, indices))
+			})
+			.collect::<Result<Vec<_>, _>>()?;
 
-        let mut max_digits = vec![0_usize; re.captures_len()];
+		let mut max_digits = vec![0_usize; re.captures_len()];
 
-        for r in &items {
-            for (i, (start, end)) in r.indices.iter().enumerate() {
-                let s = &r.old[*start..*end];
-                let s = s.trim_start_matches('0');
-                if s.len() > max_digits[i] {
-                    max_digits[i] = s.len();
-                }
-            }
-        }
+		for r in &items {
+			for (i, (start, end)) in r.indices.iter().enumerate() {
+				let s = &r.old[*start..*end];
+				let s = s.trim_start_matches('0');
+				if s.len() > max_digits[i] {
+					max_digits[i] = s.len();
+				}
+			}
+		}
 
-        for r in &items {
-            let new_name = r.new_name(&max_digits);
-            if new_name.eq(&r.old) {
-                continue;
-            }
+		for r in &items {
+			let new_name = r.new_name(&max_digits);
+			if new_name.eq(&r.old) {
+				continue;
+			}
 
-            let mut new_path = r.path.to_path_buf();
-            new_path.set_file_name(&new_name);
+			let mut new_path = r.path.to_path_buf();
+			new_path.set_file_name(&new_name);
 
-            if self.interactive
-                && !crate::confirm(&format!("rename {} to {}?", r.path.display(), &new_name))
-            {
-                // println!("Left {} as is.", &r.old);
-                continue;
-            }
+			if self.interactive
+				&& !crate::confirm(&format!("rename {} to {}?", r.path.display(), &new_name))
+			{
+				// println!("Left {} as is.", &r.old);
+				continue;
+			}
 
-            if new_path.exists()
-                && !self.force
-                && !crate::confirm(&format!(
-                    "conflict: renaming {} to {} will overwrite an existing file, proceed?",
-                    r.path.display(),
-                    &new_name
-                ))
-            {
-                continue;
-            }
+			if new_path.exists()
+				&& !self.force && !crate::confirm(&format!(
+				"conflict: renaming {} to {} will overwrite an existing file, proceed?",
+				r.path.display(),
+				&new_name
+			)) {
+				continue;
+			}
 
-            if let Err(e) = fs::rename(r.path, &new_path) {
-                if self.err_abort {
-                    return Err(Box::new(e));
-                }
-                eprintln!(
-                    "error renaming  {} to {}: {}",
-                    r.path.display(),
-                    new_path.display(),
-                    e
-                );
-            }
-        }
+			if let Err(e) = fs::rename(r.path, &new_path) {
+				if self.err_abort {
+					return Err(Box::new(e));
+				}
+				eprintln!(
+					"error renaming  {} to {}: {}",
+					r.path.display(),
+					new_path.display(),
+					e
+				);
+			}
+		}
 
-        Ok(())
-    }
+		Ok(())
+	}
 }
