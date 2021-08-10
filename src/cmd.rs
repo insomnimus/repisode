@@ -189,7 +189,7 @@ impl Cmd {
                 .count();
 
             if n_collisions > 0 {
-                return Err(format!("can't perform operation due to {} rename collisions; pass --force to overwrite", n_collisions).into());
+                return Err(format!("can't perform operation due to {} rename collisions; pass --force to overwrite (no operation taken)", n_collisions).into());
             }
         }
 
